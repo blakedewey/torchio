@@ -45,7 +45,7 @@ class RandomFlip(RandomTransform, SpatialTransform):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.axes = _parse_axes(axes)
+        self.axes = self.parse_axes(axes)
         self.flip_probability = self.parse_probability(flip_probability)
 
     def apply_transform(self, subject: Subject) -> Subject:
@@ -85,16 +85,29 @@ class Flip(SpatialTransform):
         image orientation is not known.
     """
 
-    def __init__(self, axes, **kwargs):
+    def __init__(
+        self,
+        axes: Union[int, Tuple[int, ...], str, Tuple[str, ...]],
+        **kwargs
+    ):
         super().__init__(**kwargs)
-        self.axes = _parse_axes(axes)
+        self.axes = self.parse_axes(axes)
         self.args_names = ('axes',)
 
     def apply_transform(self, subject: Subject) -> Subject:
-        axes = _ensure_axes_indices(subject, self.axes)
+        axes = self.ensure_axes_indices(subject, self.axes)
         for image in self.get_images(subject):
-            _flip_image(image, axes)
+            self.flip_image(image, axes)
         return subject
+
+    @staticmethod
+    def flip_image(image, axes):
+        spatial_axes = np.array(axes, int) + 1
+        data = image.numpy()
+        data = np.flip(data, axis=spatial_axes)
+        data = data.copy()  # remove negative strides
+        data = torch.as_tensor(data)
+        image.set_data(data)
 
     @staticmethod
     def is_invertible():
@@ -102,34 +115,3 @@ class Flip(SpatialTransform):
 
     def inverse(self):
         return self
-
-
-def _parse_axes(axes: Union[int, Tuple[int, ...]]):
-    axes_tuple = to_tuple(axes)
-    for axis in axes_tuple:
-        is_int = isinstance(axis, int)
-        is_string = isinstance(axis, str)
-        valid_number = is_int and axis in (0, 1, 2)
-        if not is_string and not valid_number:
-            message = (
-                f'All axes must be 0, 1 or 2, but found "{axis}" with type {type(axis)}'
-            )
-            raise ValueError(message)
-    return axes_tuple
-
-
-def _ensure_axes_indices(subject, axes):
-    if any(isinstance(n, str) for n in axes):
-        subject.check_consistent_orientation()
-        image = subject.get_first_image()
-        axes = sorted(3 + image.axis_name_to_index(n) for n in axes)
-    return axes
-
-
-def _flip_image(image, axes):
-    spatial_axes = np.array(axes, int) + 1
-    data = image.numpy()
-    data = np.flip(data, axis=spatial_axes)
-    data = data.copy()  # remove negative strides
-    data = torch.as_tensor(data)
-    image.set_data(data)
